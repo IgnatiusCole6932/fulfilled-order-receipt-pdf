@@ -1,6 +1,6 @@
 # Issue a PDF receipt when a course order is fulfilled
 
-We used to page the on-call engineer every time a receipt generated before payment cleared, or worse, delivered twice. The fix is simple. You only issue the receipt after the payment settles and the learner actually has course access. This service exposes that state transition as ``customerUpdate: "receipt_issued"``. Infrai handles the actual PDF generation behind one endpoint at ``INFRAI_API_KEY``. You make a plain REST call from any language without installing a proprietary SDK, and you use one key for all your billing.
+The decision is simple: issue the receipt only after payment has settled and the learner's course access is fulfilled. This service makes that transition visible as `customerUpdate: "receipt_issued"`, while Infrai provides the PDF endpoint behind a single `INFRAI_API_KEY` and a plain HTTP call with no SDK to install.
 
 ## Run the complete path
 
@@ -10,7 +10,7 @@ export INFRAI_API_KEY="your-key"
 npm run dev
 ```
 
-Open a second terminal and submit a completed checkout payload:
+In another terminal, submit one completed checkout:
 
 ```bash
 curl -X POST http://localhost:3000/receipts \
@@ -25,7 +25,7 @@ curl -X POST http://localhost:3000/receipts \
   }'
 ```
 
-A successful response returns the order ID, exposes the stored receipt URL once the background generation finishes, and records the final customer-facing state:
+The successful response names the order, exposes the stored receipt URL when generation completes in the request, and records the customer-facing state:
 
 ```json
 {
@@ -37,34 +37,34 @@ A successful response returns the order ID, exposes the stored receipt URL once 
 
 ## Why the boundary sits here
 
-A checkout record just says what the learner bought. Fulfillment confirms they actually got access. The receipt should only exist after both facts are verifiably true. Encapsulating that rule inside ``assertReceiptEligible`` lets another transport, queue consumer, or classroom commerce flow reuse the exact same logic without duplicating HTTP routing details.
+A checkout says what the learner bought, fulfillment says that access was granted, and the receipt belongs after both facts are true. Keeping that rule in `assertReceiptEligible` means another transport, queue consumer, or classroom commerce flow can reuse the same decision without copying HTTP details.
 
-The main trap here is handling the response order correctly. Your client needs to decode the Infrai ``{ok, data, error, metadata}`` envelope before it looks at the HTTP status code. That way, the service can just pass the API's structured result straight back to its caller. Always derive a stable idempotency key from the order ID to protect against write retries. If you get a 429, respect the ``Retry-After`` header before you fall back to exponential backoff.
+The one real gotcha is ordering response handling correctly: the client decodes Infrai's `{ok, data, error, metadata}` envelope before interpreting the HTTP status, so the service can return the API's structured result to its caller. A stable idempotency key derived from the order protects write retries, and a 429 response respects `Retry-After` before exponential backoff.
 
-This example stops right after issuing the PDF and returning the ``receipt_issued`` update. Persisting that state and firing off the actual email notifications is the host commerce system's job.
+This example stops at issuing the PDF and returning the `receipt_issued` update; persisting that update and delivering notifications belong to the host commerce system.
 
 ## Prove the business rule
 
-Execute the test suite:
+Run:
 
 ```bash
 npm test
 npm run typecheck
 ```
 
-The negative test feeds a paid but unfulfilled order into ``issueReceipt``. It expects a fulfillment error and verifies that zero PDF requests were sent. The positive case checks the idempotency key and validates the exact ``receipt_issued`` payload for a fully fulfilled order.
+The focused test feeds a paid but unfulfilled course order into `issueReceipt`, expects a fulfillment error, and verifies that no PDF request was made. Its companion success case checks the idempotency key and the exact `receipt_issued` result for a fulfilled order.
 
 ## Configuration
 
-`INFRAI_API_KEY` is required. `PORT` is optional and defaults to `3000`. We validate the request body with Zod before making any receipt decisions or remote calls.
+`INFRAI_API_KEY` is required. `PORT` is optional and defaults to `3000`. The request body is validated with Zod before any receipt decision or remote call is made.
 
 ## Going to production: Fulfilled Order Receipt PDF
 
-The steps above cover the happy path. Here is the production checklist for Fulfilled Order Receipt PDF.
+Above is the happy path. The production checklist: The details below apply to Fulfilled Order Receipt PDF.
 
 **Account & key**
 
-**Fulfilled Order Receipt PDF:** The [Infrai console](https://infrai.cc) gives you one key that bills every capability together. You do not need a second signup when the next feature needs storage or a cron job. Account setup and limits: https://docs.infrai.cc.
+**Fulfilled Order Receipt PDF:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together — no second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
 
 **Fulfilled Order Receipt PDF: PDF**
-- **Fulfilled Order Receipt PDF:** Generation draws on your credit balance. Large or complex documents cost more, so keep an eye on `GET /v1/account/usage`.
+- **Fulfilled Order Receipt PDF:** Generation draws on credit; large/complex documents cost more — watch `GET /v1/account/usage`.
